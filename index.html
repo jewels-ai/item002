@@ -1,28 +1,56 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Virtual Jewels Try-On</title>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap" rel="stylesheet">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap');
-    *{margin:0;padding:0;box-sizing:border-box}
-    html,body{height:100%;width:100%;background:#0b0b0b;color:#fff;font-family:'Poppins',sans-serif}
-    video{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1}
-    canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:2;pointer-events:none}
-    #branding{position:fixed;top:21px;left:20px;padding:8px 12px;border-radius:10px;display:flex;align-items:center;z-index:6;font-family:'Cinzel',serif;font-size:24px;color:#000}
-    #branding img{width:80px;height:auto;margin-right:10px}
-    .ui-buttons{position:fixed;top:20px;right:20px;display:flex;gap:15px;z-index:6}
-    .ui-buttons button,.ui-buttons a{background:rgba(255,255,255,0.12);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);border-radius:50%;width:50px;height:50px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s}
-    .ui-buttons img{width:25px;height:25px}
-    /* small status box for debugging product load (remove if you like) */
-    #statusBox{position:fixed;left:20px;top:80px;background:rgba(0,0,0,0.55);padding:8px 10px;border-radius:8px;font-size:13px;z-index:7;color:#fff}
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 100%; height: 100%; background-color: #0b0b0b; font-family: 'Poppins', sans-serif; color: #fff; }
+    video, canvas { 
+      position: fixed; 
+      top: 0; left: 0; 
+      width: 100vw; height: 100vh; 
+      object-fit: cover; 
+      z-index: 1; 
+    }
+    #branding { 
+      position: fixed; 
+      top: 21px; left: 20px; 
+      padding: 8px 12px; 
+      border-radius: 10px; 
+      display: flex; 
+      align-items: center; 
+      z-index: 5; 
+      font-family: 'Cinzel', serif; 
+      font-size: 24px; 
+      color: #000; 
+    }
+    #branding img { width: 80px; height: auto; margin-right: 10px; }
+    .ui-buttons { 
+      position: fixed; 
+      top: 20px; right: 20px; 
+      display: flex; 
+      gap: 15px; 
+      z-index: 5; 
+    }
+    .ui-buttons button, .ui-buttons a { 
+      background: rgba(255,255,255,0.2); 
+      backdrop-filter: blur(10px); 
+      border: 1px solid rgba(255,255,255,0.3); 
+      border-radius: 50%; 
+      width: 50px; height: 50px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      cursor: pointer; 
+      transition: all 0.3s ease; 
+    }
+    .ui-buttons button:hover, .ui-buttons a:hover { background: rgba(255,255,255,0.4); }
+    .ui-buttons img { width: 25px; height: 25px; }
   </style>
-
-  <!-- Mediapipe libs (must be accessible by client) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
   <div class="video-container">
@@ -30,202 +58,126 @@
     <canvas id="overlay"></canvas>
   </div>
 
-  <div id="branding"><img src="logo.png" alt="logo"/><span style="color:#fff">Fine Gold</span></div>
-  <div class="ui-buttons"><a id="loc" href="https://maps.app.goo.gl/gsTuBCVMUVk9cxYZ6" target="_blank" rel="noopener noreferrer"><img src="location_icon.png" alt="loc"/></a></div>
+  <div id="branding">
+    <img src="logo.png" alt="Overlay Jewels Logo" class="logo-icon" />
+  </div>
 
-  <div id="statusBox">Product: <span id="prodStatus">loading…</span></div>
+  <div class="ui-buttons">
+    <a id="location-btn" href="https://maps.app.goo.gl/gsTuBCVMUVk9cxYZ6" target="_blank" rel="noopener noreferrer">
+      <img src="location_icon.png" alt="Location" />
+    </a>
+  </div>
 
-<script>
-/*
-  NOTE: This file still runs entirely in the browser so a determined user can view it.
-  The fixes below address the typical reasons an image doesn't appear:
-   - Drive URL type (use uc?export=view&id=FILE_ID)
-   - Canvas stacking order
-   - image load/cors problems (retry + crossOrigin)
-*/
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('overlay');
+    const canvasCtx = canvasElement.getContext('2d');
 
-(function(){
-  // ---------------- config ----------------
-  // Encoded URL: using Google Drive 'uc?export=view&id=FILE_ID' pattern for direct access
-  // Replace the ID if you want: keep only the file ID in DRIVE_ID variable.
-  var DRIVE_ID = "1xGSNtrgSdzNQuJ3Q0gOA7BNLPBe5uyoG";
-  var PRODUCT_URL = "https://drive.google.com/uc?export=view&id=" + DRIVE_ID;
-  // ---------------- end config ------------
+    let activeProduct = null; 
+    let smoothedFaceLandmarks = null, camera;
+    let smoothedFacePoints = {};
 
-  // tiny helpers
-  var d=document, w=window;
-  function g(id){return d.getElementById(id)}
-  var statusEl = g('prodStatus');
-
-  // Anti-inspect (keeps your previous protections)
-  d.addEventListener('contextmenu', function(e){ e.preventDefault(); }, false);
-  d.addEventListener('keydown', function(e){
-    if(e.keyCode===123 || (e.ctrlKey && e.shiftKey && (e.keyCode===73||e.keyCode===74)) || (e.ctrlKey && e.keyCode===85)){
-      e.preventDefault(); e.stopPropagation();
+    // Load an image
+    async function loadImage(src) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
     }
-  }, false);
-  // Basic devtools detector
-  var lastOpen = 0;
-  setInterval(function(){
-    try{
-      var widthDiff = w.outerWidth - w.innerWidth;
-      var heightDiff = w.outerHeight - w.innerHeight;
-      if((widthDiff>160 || heightDiff>160) && Date.now()-lastOpen>2000){
-        lastOpen=Date.now();
-        try{ w.location.reload(); }catch(e){}
-      }
-    }catch(e){}
-  },800);
 
-  // DOM refs
-  var video = g('webcam');
-  var canvas = g('overlay');
-  var ctx = canvas.getContext('2d');
-
-  // image holder and retry logic
-  var productImg = null;
-  var loadAttempts = 0;
-  var MAX_ATTEMPTS = 4;
-
-  function updateStatus(text){
-    try{ statusEl.textContent = text }catch(e){}
-  }
-
-  function loadProductImage(){
-    if(loadAttempts >= MAX_ATTEMPTS){
-      updateStatus('failed to load');
-      console.warn('product image failed to load after attempts');
-      return;
+    // Automatically load jewelry on startup
+    async function loadDefaultJewelry() {
+      const defaultSrc = "https://drive.google.com/thumbnail?id=1xGSNtrgSdzNQuJ3Q0gOA7BNLPBe5uyoG&sz=w1000";
+      const img = await loadImage(defaultSrc);
+      if (img) activeProduct = img;
     }
-    loadAttempts++;
-    updateStatus('loading ('+loadAttempts+'/'+MAX_ATTEMPTS+')');
 
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function(){
-      productImg = img;
-      updateStatus('loaded');
-      console.log('Product image loaded, size:', img.width, img.height);
-    };
-    img.onerror = function(err){
-      console.warn('product image load error', err);
-      // small delay then retry
-      setTimeout(loadProductImage, 700);
-    };
-    // add cache-busting on retries to avoid stale redirects
-    var url = PRODUCT_URL + (loadAttempts>1 ? ("&cb="+Date.now()) : "");
-    img.src = url;
-  }
-
-  loadProductImage();
-
-  // Mediapipe face mesh setup
-  var FaceMeshCtor = self.FaceMesh;
-  if(!FaceMeshCtor){
-    console.error('FaceMesh library not loaded');
-    updateStatus('media lib missing');
-  }
-
-  var faceMesh = new FaceMeshCtor({ locateFile: function(f){ return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/'+f }});
-  faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.6, minTrackingConfidence:0.6 });
-
-  var smoothed = null;
-  var smoothedPoints = {};
-
-  faceMesh.onResults(function(results){
-    // ensure canvas matches latest video size
-    try{
-      if(video.videoWidth && video.videoHeight){
-        if(canvas.width !== video.videoWidth || canvas.height !== video.videoHeight){
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+    const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+    faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.6, minTrackingConfidence:0.6 });
+    faceMesh.onResults((results) => {
+      canvasCtx.clearRect(0,0,canvasElement.width,canvasElement.height);
+      if (results.multiFaceLandmarks?.length>0) {
+        const newLandmarks = results.multiFaceLandmarks[0];
+        if (!smoothedFaceLandmarks) smoothedFaceLandmarks = newLandmarks;
+        else {
+          const factor=0.2;
+          smoothedFaceLandmarks = smoothedFaceLandmarks.map((prev,i)=>({
+            x: prev.x*(1-factor)+newLandmarks[i].x*factor,
+            y: prev.y*(1-factor)+newLandmarks[i].y*factor,
+            z: prev.z*(1-factor)+newLandmarks[i].z*factor,
+          }));
         }
-      }
-    }catch(e){}
-
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    if(results.multiFaceLandmarks && results.multiFaceLandmarks.length>0){
-      var newL = results.multiFaceLandmarks[0];
-      if(!smoothed) smoothed = newL.slice();
-      else{
-        var f = 0.18;
-        for(var i=0;i<newL.length;i++){
-          // ensure smoothed[i] exists
-          if(!smoothed[i]) smoothed[i] = {x:newL[i].x, y:newL[i].y, z:newL[i].z};
-          smoothed[i].x = smoothed[i].x*(1-f) + newL[i].x*f;
-          smoothed[i].y = smoothed[i].y*(1-f) + newL[i].y*f;
-          smoothed[i].z = smoothed[i].z*(1-f) + newL[i].z*f;
-        }
-      }
-    } else {
-      smoothed = null;
-    }
-
-    drawJewelry(smoothed, ctx);
-  });
-
-  // start camera
-  var cameraObj = null;
-  function startCamera(facing){
-    try{ if(cameraObj) cameraObj.stop(); }catch(e){}
-    cameraObj = new Camera(video, {
-      onFrame: async function(){ await faceMesh.send({ image: video }); },
-      width: 1280, height: 720, facingMode: facing || 'user'
+      } else smoothedFaceLandmarks = null;
+      drawJewelry(smoothedFaceLandmarks, canvasCtx);
     });
-    cameraObj.start();
-  }
 
-  // smoothing helper
-  function smoothPoint(prev, curr, factor){
-    if(!prev) return curr;
-    return { x: prev.x*(1-factor) + curr.x*factor, y: prev.y*(1-factor) + curr.y*factor };
-  }
-
-  // draw jewellery on canvas (earrings)
-  function drawJewelry(faceLandmarks, ctx){
-    if(!faceLandmarks || !productImg) return;
-    try{
-      var left = faceLandmarks[132], right = faceLandmarks[361];
-      if(!left || !right) return;
-
-      var leftPos = { x: left.x * canvas.width - 6, y: left.y * canvas.height - 16 };
-      var rightPos = { x: right.x * canvas.width + 6, y: right.y * canvas.height - 16 };
-
-      smoothedPoints.leftEar = smoothPoint(smoothedPoints.leftEar, leftPos, 0.42);
-      smoothedPoints.rightEar = smoothPoint(smoothedPoints.rightEar, rightPos, 0.42);
-
-      var scale = 0.078;
-      var w = productImg.width * scale;
-      var h = productImg.height * scale;
-
-      // safety: ensure numbers are finite
-      if(!isFinite(w) || !isFinite(h)) return;
-
-      ctx.drawImage(productImg, smoothedPoints.leftEar.x - w/2, smoothedPoints.leftEar.y, w, h);
-      ctx.drawImage(productImg, smoothedPoints.rightEar.x - w/2, smoothedPoints.rightEar.y, w, h);
-    }catch(err){
-      // non-fatal; simply avoid crashing draw loop
-      console.warn('draw error', err);
+    async function startCamera(facingMode) {
+      if (camera) camera.stop();
+      camera = new Camera(videoElement, {
+        onFrame: async () => { await faceMesh.send({ image: videoElement }); },
+        width:1280, height:720, facingMode:facingMode
+      });
+      camera.start();
     }
-  }
 
-  // set canvas size when metadata available
-  video.addEventListener('loadedmetadata', function(){
-    try{ canvas.width = video.videoWidth; canvas.height = video.videoHeight }catch(e){}
-  });
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadDefaultJewelry(); 
+      startCamera('user');
+    });
 
-  // initialize
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ startCamera('user'); });
-  } else {
-    startCamera('user');
-  }
+    videoElement.addEventListener('loadedmetadata', () => {
+      const ratio = window.devicePixelRatio || 1;
+      const vw = videoElement.videoWidth;
+      const vh = videoElement.videoHeight;
 
-  // optional: expose a debug function on window to inspect product load state
-  try{ w.__debugProduct = function(){ return { productUrl: PRODUCT_URL, loaded: !!productImg, attempts: loadAttempts } } }catch(e){}
+      canvasElement.width  = vw * ratio;
+      canvasElement.height = vh * ratio;
+      canvasElement.style.width  = `${vw}px`;
+      canvasElement.style.height = `${vh}px`;
 
-})();
-</script>
+      canvasCtx.setTransform(1, 0, 0, 1, 0, 0); // reset transform
+      canvasCtx.scale(ratio, ratio);
+    });
+
+    function smoothPoint(prev, current, factor = 0.4) {
+      if (!prev) return current;
+      return { x: prev.x*(1-factor)+current.x*factor, y: prev.y*(1-factor)+current.y*factor };
+    }
+
+    function drawJewelry(faceLandmarks, ctx) {
+      if (faceLandmarks && activeProduct) {
+        const vw = videoElement.videoWidth;
+        const vh = videoElement.videoHeight;
+
+        // use outer eye corners for reference scale
+        const Leye = faceLandmarks[33];
+        const Reye = faceLandmarks[263];
+        const dx = (Reye.x - Leye.x) * vw;
+        const dy = (Reye.y - Leye.y) * vh;
+        const eyeDist = Math.hypot(dx, dy);
+
+        // scale earrings relative to face size
+        const factor = 0.6; // adjust this for natural size
+        const w = eyeDist * factor;
+        const h = w * (activeProduct.height / activeProduct.width);
+
+        // get ear positions
+        const leftEar = faceLandmarks[132];
+        const rightEar = faceLandmarks[361];
+        let leftEarPos = { x:leftEar.x*vw, y:leftEar.y*vh };
+        let rightEarPos = { x:rightEar.x*vw, y:rightEar.y*vh };
+
+        smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, leftEarPos);
+        smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
+
+        ctx.drawImage(activeProduct, smoothedFacePoints.leftEar.x - w/2, smoothedFacePoints.leftEar.y - h/2, w, h);
+        ctx.drawImage(activeProduct, smoothedFacePoints.rightEar.x - w/2, smoothedFacePoints.rightEar.y - h/2, w, h);
+      }
+    }
+  </script>
 </body>
 </html>
