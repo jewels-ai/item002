@@ -50,6 +50,21 @@
     }
     .ui-buttons button:hover, .ui-buttons a:hover { background: rgba(255,255,255,0.4); }
     .ui-buttons img { width: 25px; height: 25px; }
+
+    /* Debug slider panel */
+    #controls {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+      border-radius: 10px;
+      z-index: 10;
+      color: white;
+      font-size: 14px;
+    }
+    #controls label { display: block; margin: 6px 0 2px; }
+    #controls input { width: 150px; }
   </style>
 </head>
 <body>
@@ -68,6 +83,14 @@
     </a>
   </div>
 
+  <!-- Debug controls -->
+  <div id="controls">
+    <label>Size Factor</label>
+    <input id="sizeFactor" type="range" min="0.3" max="1.2" step="0.05" value="0.7">
+    <label>Vertical Offset</label>
+    <input id="offsetFactor" type="range" min="0.0" max="1.0" step="0.05" value="0.4">
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script>
@@ -78,6 +101,12 @@
     let activeProduct = null; 
     let smoothedFaceLandmarks = null, camera;
     let smoothedFacePoints = {};
+
+    // Debug params
+    let sizeFactor = 0.7;
+    let offsetFactor = 0.4;
+    document.getElementById("sizeFactor").addEventListener("input", e => sizeFactor = parseFloat(e.target.value));
+    document.getElementById("offsetFactor").addEventListener("input", e => offsetFactor = parseFloat(e.target.value));
 
     // Load an image
     async function loadImage(src) {
@@ -153,19 +182,18 @@
         const vw = videoElement.videoWidth;
         const vh = videoElement.videoHeight;
 
-        // use outer eye corners for reference scale
+        // Reference distance: eye-to-eye
         const Leye = faceLandmarks[33];
         const Reye = faceLandmarks[263];
         const dx = (Reye.x - Leye.x) * vw;
         const dy = (Reye.y - Leye.y) * vh;
         const eyeDist = Math.hypot(dx, dy);
 
-        // scale earrings relative to face size
-        const factor = 0.6; // adjust this for natural size
-        const w = eyeDist * factor;
+        // Scale earrings relative to face size
+        const w = eyeDist * sizeFactor;
         const h = w * (activeProduct.height / activeProduct.width);
 
-        // get ear positions
+        // Ear anchor points
         const leftEar = faceLandmarks[132];
         const rightEar = faceLandmarks[361];
         let leftEarPos = { x:leftEar.x*vw, y:leftEar.y*vh };
@@ -174,8 +202,11 @@
         smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, leftEarPos);
         smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
 
-        ctx.drawImage(activeProduct, smoothedFacePoints.leftEar.x - w/2, smoothedFacePoints.leftEar.y - h/2, w, h);
-        ctx.drawImage(activeProduct, smoothedFacePoints.rightEar.x - w/2, smoothedFacePoints.rightEar.y - h/2, w, h);
+        // Apply downward offset so earrings sit below the ear
+        const verticalOffset = h * offsetFactor;
+
+        ctx.drawImage(activeProduct, smoothedFacePoints.leftEar.x - w/2, smoothedFacePoints.leftEar.y - h/2 + verticalOffset, w, h);
+        ctx.drawImage(activeProduct, smoothedFacePoints.rightEar.x - w/2, smoothedFacePoints.rightEar.y - h/2 + verticalOffset, w, h);
       }
     }
   </script>
