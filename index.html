@@ -1,144 +1,231 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Virtual Jewels Try-On</title>
-<!-- NOTE: For real secrecy, host product images & logic on a server and return short-lived URLs. -->
-<link href="https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap" rel="stylesheet">
-<style>@import url('https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap');*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;width:100%;background:#0b0b0b;color:#fff;font-family:'Poppins',sans-serif}video,canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1}#branding{position:fixed;top:21px;left:20px;padding:8px 12px;border-radius:10px;display:flex;align-items:center;z-index:5;font-family:'Cinzel',serif;font-size:24px;color:#000}#branding img{width:80px;height:auto;margin-right:10px}.ui-buttons{position:fixed;top:20px;right:20px;display:flex;gap:15px;z-index:5}.ui-buttons button,.ui-buttons a{background:rgba(255,255,255,0.12);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);border-radius:50%;width:50px;height:50px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s}.ui-buttons img{width:25px;height:25px}</style>
-<!-- Mediapipe libs (must be accessible by client) -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-</head><body>
-<div class="video-container">
-  <video id="webcam" autoplay muted playsinline></video>
-  <canvas id="overlay"></canvas>
-</div>
-<div id="branding"><img src="logo.png" alt="logo"/><span style="color:#fff">Fine Gold</span></div>
-<div class="ui-buttons"><a id="loc" href="https://maps.app.goo.gl/gsTuBCVMUVk9cxYZ6" target="_blank" rel="noopener noreferrer"><img src="location_icon.png" alt="loc"/></a></div>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Virtual Jewels Try-On</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap" rel="stylesheet">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel&family=Poppins&display=swap');
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%;width:100%;background:#0b0b0b;color:#fff;font-family:'Poppins',sans-serif}
+    video{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1}
+    canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:2;pointer-events:none}
+    #branding{position:fixed;top:21px;left:20px;padding:8px 12px;border-radius:10px;display:flex;align-items:center;z-index:6;font-family:'Cinzel',serif;font-size:24px;color:#000}
+    #branding img{width:80px;height:auto;margin-right:10px}
+    .ui-buttons{position:fixed;top:20px;right:20px;display:flex;gap:15px;z-index:6}
+    .ui-buttons button,.ui-buttons a{background:rgba(255,255,255,0.12);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.18);border-radius:50%;width:50px;height:50px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s}
+    .ui-buttons img{width:25px;height:25px}
+    /* small status box for debugging product load (remove if you like) */
+    #statusBox{position:fixed;left:20px;top:80px;background:rgba(0,0,0,0.55);padding:8px 10px;border-radius:8px;font-size:13px;z-index:7;color:#fff}
+  </style>
+
+  <!-- Mediapipe libs (must be accessible by client) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body>
+  <div class="video-container">
+    <video id="webcam" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="branding"><img src="logo.png" alt="logo"/><span style="color:#fff">Fine Gold</span></div>
+  <div class="ui-buttons"><a id="loc" href="https://maps.app.goo.gl/gsTuBCVMUVk9cxYZ6" target="_blank" rel="noopener noreferrer"><img src="location_icon.png" alt="loc"/></a></div>
+
+  <div id="statusBox">Product: <span id="prodStatus">loading…</span></div>
 
 <script>
 /*
-  QUICK SECURITY NOTES:
-   - This obfuscation is only to slow casual copying.
-   - Move any real secrets (private product URLs, API keys) to a server and return ephemeral URLs.
-   - To change the default product: decode the BASE64_PRODUCT string below and replace with your Google Drive thumbnail link,
-     or ideally, change it on the server.
+  NOTE: This file still runs entirely in the browser so a determined user can view it.
+  The fixes below address the typical reasons an image doesn't appear:
+   - Drive URL type (use uc?export=view&id=FILE_ID)
+   - Canvas stacking order
+   - image load/cors problems (retry + crossOrigin)
 */
 
 (function(){
-  // ----- config (base64 encoded strings to hide plain text) -----
-  var B="aHR0cHM6Ly9kcml2ZS5nb29nbGUuY29tL3RodW1ibmFpbD9pZD0xeEdTTnRyZ1Nkek5RdUozUTBnT0E3Qk5MUEJlNXV5b0cmc3o9dzEwMDA=";
-  // Above is base64 for:
-  // https://drive.google.com/thumbnail?id=1xGSNtrgSdzNQuJ3Q0gOA7BNLPBe5uyoG&sz=w1000
-  // Replace the base64 string with your own encoded URL if needed.
-  // Example: btoa('https://drive.google.com/thumbnail?id=YOUR_PRODUCT_ID&sz=w1000')
+  // ---------------- config ----------------
+  // Encoded URL: using Google Drive 'uc?export=view&id=FILE_ID' pattern for direct access
+  // Replace the ID if you want: keep only the file ID in DRIVE_ID variable.
+  var DRIVE_ID = "1xGSNtrgSdzNQuJ3Q0gOA7BNLPBe5uyoG";
+  var PRODUCT_URL = "https://drive.google.com/uc?export=view&id=" + DRIVE_ID;
+  // ---------------- end config ------------
 
-  // Lightweight utilities (minified-style)
+  // tiny helpers
   var d=document, w=window;
-  function g(id){return d.getElementById(id);}
-  function atobSafe(s){try{return atob(s)}catch(e){return ''}}
-  function noop(){}
+  function g(id){return d.getElementById(id)}
+  var statusEl = g('prodStatus');
 
-  // Anti-inspect: disable common keys + right-click
-  d.addEventListener('contextmenu',function(e){e.preventDefault()},false);
-  d.addEventListener('keydown',function(e){
-    // F12, Ctrl+Shift+I/J, Ctrl+U
-    if(e.keyCode===123 || (e.ctrlKey && e.shiftKey && (e.keyCode===73||e.keyCode===74)) || (e.ctrlKey && e.keyCode===85)){ e.preventDefault(); e.stopPropagation(); }
-  },false);
-
-  // Basic devtools detector — reloads to frustrate rapid inspection (not foolproof)
-  var lastOpen=0;
+  // Anti-inspect (keeps your previous protections)
+  d.addEventListener('contextmenu', function(e){ e.preventDefault(); }, false);
+  d.addEventListener('keydown', function(e){
+    if(e.keyCode===123 || (e.ctrlKey && e.shiftKey && (e.keyCode===73||e.keyCode===74)) || (e.ctrlKey && e.keyCode===85)){
+      e.preventDefault(); e.stopPropagation();
+    }
+  }, false);
+  // Basic devtools detector
+  var lastOpen = 0;
   setInterval(function(){
     try{
       var widthDiff = w.outerWidth - w.innerWidth;
       var heightDiff = w.outerHeight - w.innerHeight;
       if((widthDiff>160 || heightDiff>160) && Date.now()-lastOpen>2000){
         lastOpen=Date.now();
-        try{ w.location.reload(); }catch(err){}
+        try{ w.location.reload(); }catch(e){}
       }
-    }catch(err){}
+    }catch(e){}
   },800);
 
-  // DOM references
-  var vEl=g('webcam'), cEl=g('overlay'), ctx=cEl.getContext('2d');
-  var productImg=null;
-  var smoothed=null, cameraObj=null, smoothedPoints={};
+  // DOM refs
+  var video = g('webcam');
+  var canvas = g('overlay');
+  var ctx = canvas.getContext('2d');
 
-  // minimal image loader using base64-obfuscated URL
-  (function loadDefault(){
-    var url=atobSafe(B);
-    if(!url) return;
-    var im=new Image();
-    im.crossOrigin='anonymous';
-    im.onload=function(){ productImg=im }
-    im.onerror=function(){ /* swallow */ }
-    im.src=url;
-  })();
+  // image holder and retry logic
+  var productImg = null;
+  var loadAttempts = 0;
+  var MAX_ATTEMPTS = 4;
 
-  // faceMesh setup (mediapipe)
-  var FaceMesh = self.FaceMesh;
-  if(!FaceMesh){ console.warn('mediapipe not loaded'); }
-  var fm = new FaceMesh({ locateFile: function(f){ return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/'+f }});
-  fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6});
-  fm.onResults(function(res){
-    ctx.clearRect(0,0,cEl.width,cEl.height);
-    if(res.multiFaceLandmarks && res.multiFaceLandmarks.length>0){
-      var newL = res.multiFaceLandmarks[0];
-      if(!smoothed) smoothed=newL;
-      else{
-        var f=0.18;
-        for(var i=0;i<newL.length;i++){
-          smoothed[i]={x: smoothed[i].x*(1-f)+newL[i].x*f, y: smoothed[i].y*(1-f)+newL[i].y*f, z: smoothed[i].z*(1-f)+newL[i].z*f};
+  function updateStatus(text){
+    try{ statusEl.textContent = text }catch(e){}
+  }
+
+  function loadProductImage(){
+    if(loadAttempts >= MAX_ATTEMPTS){
+      updateStatus('failed to load');
+      console.warn('product image failed to load after attempts');
+      return;
+    }
+    loadAttempts++;
+    updateStatus('loading ('+loadAttempts+'/'+MAX_ATTEMPTS+')');
+
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){
+      productImg = img;
+      updateStatus('loaded');
+      console.log('Product image loaded, size:', img.width, img.height);
+    };
+    img.onerror = function(err){
+      console.warn('product image load error', err);
+      // small delay then retry
+      setTimeout(loadProductImage, 700);
+    };
+    // add cache-busting on retries to avoid stale redirects
+    var url = PRODUCT_URL + (loadAttempts>1 ? ("&cb="+Date.now()) : "");
+    img.src = url;
+  }
+
+  loadProductImage();
+
+  // Mediapipe face mesh setup
+  var FaceMeshCtor = self.FaceMesh;
+  if(!FaceMeshCtor){
+    console.error('FaceMesh library not loaded');
+    updateStatus('media lib missing');
+  }
+
+  var faceMesh = new FaceMeshCtor({ locateFile: function(f){ return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/'+f }});
+  faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.6, minTrackingConfidence:0.6 });
+
+  var smoothed = null;
+  var smoothedPoints = {};
+
+  faceMesh.onResults(function(results){
+    // ensure canvas matches latest video size
+    try{
+      if(video.videoWidth && video.videoHeight){
+        if(canvas.width !== video.videoWidth || canvas.height !== video.videoHeight){
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
         }
       }
-    } else { smoothed=null }
-    draw(smoothed, ctx);
+    }catch(e){}
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    if(results.multiFaceLandmarks && results.multiFaceLandmarks.length>0){
+      var newL = results.multiFaceLandmarks[0];
+      if(!smoothed) smoothed = newL.slice();
+      else{
+        var f = 0.18;
+        for(var i=0;i<newL.length;i++){
+          // ensure smoothed[i] exists
+          if(!smoothed[i]) smoothed[i] = {x:newL[i].x, y:newL[i].y, z:newL[i].z};
+          smoothed[i].x = smoothed[i].x*(1-f) + newL[i].x*f;
+          smoothed[i].y = smoothed[i].y*(1-f) + newL[i].y*f;
+          smoothed[i].z = smoothed[i].z*(1-f) + newL[i].z*f;
+        }
+      }
+    } else {
+      smoothed = null;
+    }
+
+    drawJewelry(smoothed, ctx);
   });
 
   // start camera
-  function startCamera(facingMode){
+  var cameraObj = null;
+  function startCamera(facing){
     try{ if(cameraObj) cameraObj.stop(); }catch(e){}
-    cameraObj = new Camera(vEl, {
-      onFrame: async function(){ await fm.send({image: vEl}); },
-      width:1280, height:720, facingMode:facingMode || 'user'
+    cameraObj = new Camera(video, {
+      onFrame: async function(){ await faceMesh.send({ image: video }); },
+      width: 1280, height: 720, facingMode: facing || 'user'
     });
     cameraObj.start();
   }
 
-  // set canvas size once metadata loads
-  vEl.addEventListener('loadedmetadata', function(){
-    try{ cEl.width = vEl.videoWidth; cEl.height = vEl.videoHeight }catch(e){}
-  });
-
   // smoothing helper
-  function sp(prev, cur, f){ if(!prev) return cur; return {x: prev.x*(1-f)+cur.x*f, y: prev.y*(1-f)+cur.y*f}; }
-
-  // draw jewelry (ears)
-  function draw(land, ctx){
-    if(!land || !productImg) return;
-    try{
-      var left = land[132], right = land[361];
-      var lx = left.x*cEl.width - 6, ly = left.y*cEl.height - 16;
-      var rx = right.x*cEl.width + 6, ry = right.y*cEl.height - 16;
-      smoothedPoints.leftEar = sp(smoothedPoints.leftEar, {x:lx,y:ly}, 0.42);
-      smoothedPoints.rightEar = sp(smoothedPoints.rightEar, {x:rx,y:ry}, 0.42);
-      var scale = 0.078;
-      var w = productImg.width * scale, h = productImg.height * scale;
-      ctx.drawImage(productImg, smoothedPoints.leftEar.x - w/2, smoothedPoints.leftEar.y, w, h);
-      ctx.drawImage(productImg, smoothedPoints.rightEar.x - w/2, smoothedPoints.rightEar.y, w, h);
-    }catch(err){}
+  function smoothPoint(prev, curr, factor){
+    if(!prev) return curr;
+    return { x: prev.x*(1-factor) + curr.x*factor, y: prev.y*(1-factor) + curr.y*factor };
   }
 
-  // initialize on DOM ready
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded', function(){ startCamera('user'); });
-  } else { startCamera('user'); }
+  // draw jewellery on canvas (earrings)
+  function drawJewelry(faceLandmarks, ctx){
+    if(!faceLandmarks || !productImg) return;
+    try{
+      var left = faceLandmarks[132], right = faceLandmarks[361];
+      if(!left || !right) return;
 
-  // Extra: attempt to make accessing code via view-source less convenient by redirecting if '?src' missing (light deterrent)
-  try{
-    if(!location.search || location.search.indexOf('src=1')===-1){
-      // Do nothing intrusive by default; if you want to enforce: uncomment next line to redirect to same page with src=1
-      // location.replace(location.pathname + '?src=1');
+      var leftPos = { x: left.x * canvas.width - 6, y: left.y * canvas.height - 16 };
+      var rightPos = { x: right.x * canvas.width + 6, y: right.y * canvas.height - 16 };
+
+      smoothedPoints.leftEar = smoothPoint(smoothedPoints.leftEar, leftPos, 0.42);
+      smoothedPoints.rightEar = smoothPoint(smoothedPoints.rightEar, rightPos, 0.42);
+
+      var scale = 0.078;
+      var w = productImg.width * scale;
+      var h = productImg.height * scale;
+
+      // safety: ensure numbers are finite
+      if(!isFinite(w) || !isFinite(h)) return;
+
+      ctx.drawImage(productImg, smoothedPoints.leftEar.x - w/2, smoothedPoints.leftEar.y, w, h);
+      ctx.drawImage(productImg, smoothedPoints.rightEar.x - w/2, smoothedPoints.rightEar.y, w, h);
+    }catch(err){
+      // non-fatal; simply avoid crashing draw loop
+      console.warn('draw error', err);
     }
-  }catch(e){}
+  }
+
+  // set canvas size when metadata available
+  video.addEventListener('loadedmetadata', function(){
+    try{ canvas.width = video.videoWidth; canvas.height = video.videoHeight }catch(e){}
+  });
+
+  // initialize
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ startCamera('user'); });
+  } else {
+    startCamera('user');
+  }
+
+  // optional: expose a debug function on window to inspect product load state
+  try{ w.__debugProduct = function(){ return { productUrl: PRODUCT_URL, loaded: !!productImg, attempts: loadAttempts } } }catch(e){}
+
 })();
 </script>
-</body></html>
+</body>
+</html>
